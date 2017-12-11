@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/csv"
 	"flag"
 	"io/ioutil"
 	"log"
@@ -20,6 +22,8 @@ var (
 	outputName = flag.String("output", "./output.xlsx", "file to output the results to")
 	sheetName  = flag.String("sheet", "", "sheet name to pull data from")
 	rowStart   = flag.Int("rowStart", 0, "row data starts on, to account for headers")
+
+	newColumns = flag.String("columns", "{{.Filename}}", "new columns to prepend, commaseperated with template syntax")
 
 	logV = flag.Bool("v", false, "enable verbose logging. Like no really, super verbose")
 
@@ -48,8 +52,18 @@ var (
 	}
 )
 
+func getColumns(columns string) ([]string, error) {
+	r := csv.NewReader(bytes.NewBufferString(*newColumns))
+	columns, err := r.Read()
+	if err != nil {
+		return []string{}, err
+	}
+	return columns, nil
+}
+
 func main() {
 	flag.Parse()
+
 	var err error
 	var l *zap.SugaredLogger
 	if *logV {
@@ -67,6 +81,13 @@ func main() {
 	}
 	defer l.Sync()
 	l = l.Named("colate")
+
+	columns, err := getColumns(*newColumns)
+	if err != nil {
+		l.Fatalw("couldn't parse columns flag",
+			"newColumns", *newColumns,
+		)
+	}
 
 	files, err := listFiles(*fileDir)
 
@@ -96,7 +117,7 @@ func main() {
 		}
 
 		// prepend the file name
-		thisData = insertColumn(thisData, 0, []string{fileBase})
+		thisData = insertColumn(l, thisData, 0, []string{fileBase})
 
 		// add to output data
 		data = append(data, thisData...)
@@ -132,25 +153,37 @@ func createFile(l *zap.SugaredLogger, name string, data [][]string) *excelize.Fi
 	f := excelize.NewFile()
 	sheetIndex := f.NewSheet(name)
 	f.SetActiveSheet(sheetIndex)
+	writeData(l, f, 0, name, data)
+	return f
+}
+
+func writeData(l *zap.SugaredLogger, f *excelize.File, startRow int, sheet string, data [][]string) int {
+	l.Debugw("writeData()",
+		"f", "<omitted>",
+		"startRow", startRow,
+		"sheet", sheet,
+		"data", len(data),
+	)
 	for ri, row := range data {
 		for ci, value := range row {
-			// construct the cell name. Note: excel is 1 indexed
-			loc := excelize.ToAlphaString(ci) + strconv.Itoa(ri+1)
-			l.Debugw("output cell value",
-				"sheetName", name,
-				"cellLocation", loc,
-				"value", value,
-			)
-			f.SetCellStr(name, loc, value)
+			// construct cell name. Note: excel is 1 indexed
+			loc := excelize.ToAlphaString(ci) + strconv.Itoa(startRow+ri+1)
+			f.SetCellStr(sheet, loc, value)
 		}
 	}
-	return f
+
+	return startRow + len(data)
 }
 
 // insertColumn will take a two dimensional slice of strings and insert a new
 // column. The values for the new column are taken from "source", the input
 // slice is repeated as many times as necessary to fill all rows of the input
-func insertColumn(rows [][]string, position int, source []string) [][]string {
+func insertColumn(l *zap.SugaredLogger, rows [][]string, position int, source []string) [][]string {
+	l.Debugw("insertColumn()",
+		"rows", len(rows),
+		"position", position,
+		"source", source,
+	)
 	sourceLen := len(source)
 	for ri, row := range rows {
 		// get the value to put
@@ -174,18 +207,9 @@ func getRows(l *zap.SugaredLogger, file, sheet string, start int) ([][]string, e
 
 	// fill in blanks with preceeding values
 	for ri, row := range rows {
-		l.Debugw("Starting next row",
-			"row", ri,
-			"length", len(row),
-		)
 		for ci, cell := range row {
-			l.Debugw("cell value",
-				"row", ri,
-				"column", ci,
-				"value", cell,
-			)
 			if cell == "" && ri != 0 {
-				l.Infow("inheriting empty cell value from previous row",
+				l.Debugw("inheriting empty cell value from previous row",
 					"row", ri,
 					"column", ci,
 					"value", cell,
