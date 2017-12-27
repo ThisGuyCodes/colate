@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"go.uber.org/zap"
@@ -23,7 +24,7 @@ var (
 	sheetName  = flag.String("sheet", "", "sheet name to pull data from")
 	rowStart   = flag.Int("rowStart", 0, "row data starts on, to account for headers")
 
-	newColumns = flag.String("columns", "{{.Filename}}", "new columns to prepend, commaseperated with template syntax")
+	newColumns = flag.String("columns", "{{.FileName}}", "new columns to prepend, comma-seperated with template syntax")
 
 	logV = flag.Bool("v", false, "enable verbose logging. Like no really, super verbose")
 
@@ -52,13 +53,26 @@ var (
 	}
 )
 
-func getColumns(columns string) ([]string, error) {
-	r := csv.NewReader(bytes.NewBufferString(*newColumns))
+func getColumns(columnString string) ([]*template.Template, error) {
+	r := csv.NewReader(bytes.NewBufferString(columnString))
 	columns, err := r.Read()
 	if err != nil {
-		return []string{}, err
+		return []*template.Template{}, err
 	}
-	return columns, nil
+	templates := make([]*template.Template, len(columns))
+	for i := range templates {
+		templates[i], err = template.New(strconv.Itoa(i)).Parse(columns[i])
+		if err != nil {
+			return []*template.Template{}, err
+		}
+	}
+	return templates, nil
+}
+
+type ColumnData struct {
+	Cells    []string
+	FileName string
+	RowNum   int
 }
 
 func main() {
@@ -117,7 +131,10 @@ func main() {
 		}
 
 		// prepend the file name
-		thisData = insertColumn(l, thisData, 0, []string{fileBase})
+		columnData := ColumnData{
+			FileName: fileBase,
+		}
+		thisData = prependColumns(l, thisData, columnData, columns)
 
 		// add to output data
 		data = append(data, thisData...)
@@ -175,21 +192,34 @@ func writeData(l *zap.SugaredLogger, f *excelize.File, startRow int, sheet strin
 	return startRow + len(data)
 }
 
-// insertColumn will take a two dimensional slice of strings and insert a new
+// prependColumns will take a two dimensional slice of strings and insert a new
 // column. The values for the new column are taken from "source", the input
 // slice is repeated as many times as necessary to fill all rows of the input
-func insertColumn(l *zap.SugaredLogger, rows [][]string, position int, source []string) [][]string {
+func prependColumns(l *zap.SugaredLogger, rows [][]string, columnData ColumnData, sources []*template.Template) [][]string {
 	l.Debugw("insertColumn()",
 		"rows", len(rows),
-		"position", position,
-		"source", source,
+		"columnData", columnData,
 	)
-	sourceLen := len(source)
 	for ri, row := range rows {
-		// get the value to put
-		toPut := source[ri%sourceLen]
+		columnData.Cells = row
+		columnData.RowNum = ri
+		newData := make([]string, len(sources))
+		for si, source := range sources {
+			toPut := new(bytes.Buffer)
+			// get the value to put
+			err := source.Execute(toPut, columnData)
+			if err != nil {
+				l.Warnw("error executing column template",
+					"err", err,
+					"template", source.DefinedTemplates(),
+					"columnData", columnData,
+				)
+			}
+			newData[si] = toPut.String()
+		}
+
 		// reconstruct the new slice, replacing the current row
-		rows[ri] = append(row[:position], append([]string{toPut}, row[position:]...)...)
+		rows[ri] = append(newData, row...)
 	}
 	return rows
 }
