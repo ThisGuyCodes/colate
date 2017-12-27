@@ -23,6 +23,7 @@ var (
 	outputName = flag.String("output", "./output.xlsx", "file to output the results to")
 	sheetName  = flag.String("sheet", "", "sheet name to pull data from")
 	rowStart   = flag.Int("rowStart", 0, "row data starts on, to account for headers")
+	rowCount   = flag.Int("rowCount", 0, "number of rows to take, 0 for no limit")
 
 	newColumns = flag.String("columns", "{{.FileName}}", "new columns to prepend, comma-seperated with template syntax")
 
@@ -123,7 +124,7 @@ func main() {
 		l.Debug("starting file")
 
 		fileBase := filepath.Base(file)
-		thisData, err := getRows(l, file, *sheetName, *rowStart)
+		thisData, err := getRows(l, file, *sheetName, *rowStart, *rowCount)
 		if err != nil {
 			l.Fatalw("fatal error",
 				"error", err,
@@ -224,7 +225,7 @@ func prependColumns(l *zap.SugaredLogger, rows [][]string, columnData ColumnData
 	return rows
 }
 
-func getRows(l *zap.SugaredLogger, file, sheet string, start int) ([][]string, error) {
+func getRows(l *zap.SugaredLogger, file, sheet string, start, count int) ([][]string, error) {
 	f, err := excelize.OpenFile(file)
 	if err != nil {
 		return [][]string{}, err
@@ -247,6 +248,10 @@ func getRows(l *zap.SugaredLogger, file, sheet string, start int) ([][]string, e
 				)
 				row[ci] = rows[ri-1][ci]
 			}
+		}
+		count = count - 1
+		if count == 0 {
+			break
 		}
 	}
 
