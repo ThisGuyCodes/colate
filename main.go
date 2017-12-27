@@ -225,7 +225,13 @@ func prependColumns(l *zap.SugaredLogger, rows [][]string, columnData ColumnData
 	return rows
 }
 
-func getRows(l *zap.SugaredLogger, file, sheet string, start, count int) ([][]string, error) {
+func getRows(l *zap.SugaredLogger, file, sheet string, start, limit int) ([][]string, error) {
+	l.Debugw("getRows()",
+		"file", file,
+		"sheet", sheet,
+		"start", start,
+		"limit", limit,
+	)
 	f, err := excelize.OpenFile(file)
 	if err != nil {
 		return [][]string{}, err
@@ -235,25 +241,33 @@ func getRows(l *zap.SugaredLogger, file, sheet string, start, count int) ([][]st
 
 	// start from intended position
 	rows = rows[start:]
+	if limit > 0 {
+		if len(rows) > limit {
+			l.Debugw("limiting rows to limit length",
+				"len(rows)", len(rows),
+				"limit", limit,
+			)
+			rows = rows[:limit]
+		}
+	}
 
-	// fill in blanks with preceeding values
 	for ri, row := range rows {
 		for ci, cell := range row {
 			if cell == "" && ri != 0 {
-				l.Debugw("inheriting empty cell value from previous row",
-					"row", ri,
-					"column", ci,
-					"value", cell,
-					"inherited", rows[ri-1][ci],
-				)
+				// fill in blanks with preceeding values
+				//	l.Debugw("inheriting empty cell value from previous row",
+				//		"row", ri,
+				//		"column", ci,
+				//		"value", cell,
+				//		"inherited", rows[ri-1][ci],
+				//	)
 				row[ci] = rows[ri-1][ci]
 			}
 		}
-		count = count - 1
-		if count == 0 {
-			break
-		}
 	}
+	l.Debugw("getRows() return",
+		"len(rows)", len(rows),
+	)
 
 	return rows, nil
 }
