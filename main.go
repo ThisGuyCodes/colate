@@ -251,20 +251,22 @@ func getRows(l *zap.SugaredLogger, file, sheet string, start, limit int) ([][]st
 		}
 	}
 
-	for ri, row := range rows {
-		for ci, cell := range row {
-			if cell == "" && ri != 0 {
-				// fill in blanks with preceeding values
-				//	l.Debugw("inheriting empty cell value from previous row",
-				//		"row", ri,
-				//		"column", ci,
-				//		"value", cell,
-				//		"inherited", rows[ri-1][ci],
-				//	)
-				row[ci] = rows[ri-1][ci]
-			}
-		}
-	}
+	// we don't want this anymore, that was just a special case.
+	// in the future maybe a template function?
+	//	for ri, row := range rows {
+	//		for ci, cell := range row {
+	//			if cell == "" && ri != 0 {
+	//				// fill in blanks with preceeding values
+	//				//	l.Debugw("inheriting empty cell value from previous row",
+	//				//		"row", ri,
+	//				//		"column", ci,
+	//				//		"value", cell,
+	//				//		"inherited", rows[ri-1][ci],
+	//				//	)
+	//				row[ci] = rows[ri-1][ci]
+	//			}
+	//		}
+	//	}
 	l.Debugw("getRows() return",
 		"len(rows)", len(rows),
 	)
